@@ -7,7 +7,7 @@
 import PicoGL from "../node_modules/picogl/build/module/picogl.js";
 import {mat4, vec3} from "../node_modules/gl-matrix/esm/index.js";
 
-import {positions, uvs, indices} from "../blender/cube.js";
+import {positions, uvs, indices} from "../blender/smiley.js";
 import {positions as planePositions, indices as planeIndices} from "../blender/plane.js";
 
 // language=GLSL

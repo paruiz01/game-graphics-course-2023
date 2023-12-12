@@ -46,7 +46,9 @@ let vertexShader = `
     
     void main()
     {
-        gl_Position = modelViewProjectionMatrix * vec4(position, 1.0);
+        float yOffset = sin(time) * 2.0; //Oscillating value for vertical movement
+        vec3 modifiedPosition = position + vec3(0.0, yOffset, 0.0); //Add the offset
+        gl_Position = modelViewProjectionMatrix * vec4(modifiedPosition, 1.4);
         vec3 viewNormal = (modelViewMatrix * vec4(normal, 0.0)).xyz;
         color = mix(bgColor * 0.8, fgColor, viewNormal.z) + pow(viewNormal.z, 20.0);
     }
@@ -68,7 +70,8 @@ let fragmentShader = `
     
     void main()
     {
-        outColor = color;
+        vec4 invertedColor = vec4(1.0 - color.rgb, color.a); //Invert the colors
+        outColor = invertedColor;
     }
 `;
 
@@ -76,8 +79,8 @@ let fragmentShader = `
 // **             Application processing               **
 // ******************************************************
 
-let bgColor = vec4.fromValues(1.0, 0.2, 0.3, 1.0);
-let fgColor = vec4.fromValues(1.0, 0.9, 0.5, 1.0);
+let bgColor = vec4.fromValues(0.3, 0.5, 0.5, 1.0);
+let fgColor = vec4.fromValues(0.6, 0.9, 0.7, 1.0);
 
 
 app.clearColor(bgColor[0], bgColor[1], bgColor[2], bgColor[3])
@@ -107,11 +110,11 @@ let drawCall = app.createDrawCall(program, vertexArray)
 function draw(timems) {
     const time = timems * 0.001;
 
-    mat4.perspective(projMatrix, Math.PI / 4, app.width / app.height, 0.1, 100.0);
-    mat4.lookAt(viewMatrix, vec3.fromValues(3, 0, 2), vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
+    mat4.perspective(projMatrix, Math.PI / -2, app.width / app.height, 0.1, 100.0);
+    mat4.lookAt(viewMatrix, vec3.fromValues(10, 0, 5), vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
     mat4.multiply(viewProjMatrix, projMatrix, viewMatrix);
 
-    mat4.fromXRotation(rotateXMatrix, time * 0.1136);
+    mat4.fromXRotation(rotateXMatrix, time * 0);
     mat4.fromYRotation(rotateYMatrix, time * 0.2235);
     mat4.multiply(modelMatrix, rotateXMatrix, rotateYMatrix);
 
