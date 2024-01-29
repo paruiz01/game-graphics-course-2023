@@ -15,15 +15,27 @@ let fragmentShader = `
     #version 300 es
     precision highp float;
     
-    uniform sampler2D tex;    
+    uniform float time;
+    uniform sampler2D tex;  
+    uniform sampler2D tex2;  
     
     in vec2 v_uv;
     
     out vec4 outColor;
     
     void main()
-    {        
-        outColor = texture(tex, v_uv);
+    {
+        vec4 color1 = texture(tex, v_uv);        
+        vec4 color2 = texture(tex2, v_uv);
+        outColor = mix(color1, color2, 0.5);
+
+        //Simple distortion: Offset the UV coordinates based on a sine wave and cosine wave.
+        vec2 distortedUV = v_uv;
+        distortedUV.x += sin(time) * 0.05; //Horizontal wave
+        distortedUV.y += cos(time) * 0.05; // Vertical wave
+
+        vec4 color = texture(tex, distortedUV);
+        outColor = color;
     }
 `;
 
@@ -103,31 +115,41 @@ async function loadTexture(fileName) {
     return await createImageBitmap(await (await fetch("images/" + fileName)).blob());
 }
 
-const tex = await loadTexture("abstract.jpg");
+const tex = await loadTexture("space.jpg");
+const tex2 = await loadTexture("abstract.jpg"); // 2nd texture
 let drawCall = app.createDrawCall(program, vertexArray)
     .texture("tex", app.createTexture2D(tex, tex.width, tex.height, {
         magFilter: PicoGL.LINEAR,
         minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
         maxAnisotropy: 10,
-        wrapS: PicoGL.REPEAT,
-        wrapT: PicoGL.REPEAT
+        wrapS: PicoGL.MIRRORED_REPEAT,
+        wrapT: PicoGL.MIRRORED_REPEAT
+    }))
+
+    .texture("tex2", app.createTexture2D(tex2,tex2.width, tex2.height, {
+        magFilter: PicoGL.LINEAR,
+        minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
+        maxAnisotropy: 10,
+        wrapS: PicoGL.MIRRORED_REPEAT,
+        wrapT: PicoGL.MIRRORED_REPEAT
     }));
 
 let skyboxDrawCall = app.createDrawCall(skyboxProgram, skyboxArray)
     .texture("cubemap", app.createCubemap({
-        negX: await loadTexture("stormydays_bk.png"),
-        posX: await loadTexture("stormydays_ft.png"),
-        negY: await loadTexture("stormydays_dn.png"),
-        posY: await loadTexture("stormydays_up.png"),
-        negZ: await loadTexture("stormydays_lf.png"),
-        posZ: await loadTexture("stormydays_rt.png")
+        negX: await loadTexture("bkg1_back.png"),
+        posX: await loadTexture("bkg1_front.png"),
+        negY: await loadTexture("bkg1_bot.png"),
+        posY: await loadTexture("bkg1_top.png"),
+        negZ: await loadTexture("bkg1_left.png"),
+        posZ: await loadTexture("bkg1_right.png")
     }));
+
 
 function draw(timems) {
     const time = timems * 0.001;
 
     mat4.perspective(projMatrix, Math.PI / 2, app.width / app.height, 0.1, 100.0);
-    let camPos = vec3.rotateY(vec3.create(), vec3.fromValues(0, 0.5, 2), vec3.fromValues(0, 0, 0), time * 0.05);
+    let camPos = vec3.rotateY(vec3.create(), vec3.fromValues(0, 0.5, 20), vec3.fromValues(0, 0, 0), time * 0.05);
     mat4.lookAt(viewMatrix, camPos, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
     mat4.multiply(viewProjMatrix, projMatrix, viewMatrix);
 
@@ -153,6 +175,8 @@ function draw(timems) {
     app.enable(PicoGL.CULL_FACE);
     drawCall.uniform("modelViewProjectionMatrix", modelViewProjectionMatrix);
     drawCall.draw();
+
+    drawCall.uniform("time", time);
 
     requestAnimationFrame(draw);
 }
