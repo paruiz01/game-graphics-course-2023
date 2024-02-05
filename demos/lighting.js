@@ -1,18 +1,20 @@
 import PicoGL from "../node_modules/picogl/build/module/picogl.js";
 import {mat4, vec3} from "../node_modules/gl-matrix/esm/index.js";
 
-import {positions, normals, indices} from "../blender/monkey.js"
+import {positions, normals, indices, uvs} from "../blender/smiley.js"
+import {positions as positions2, normals as normals2, indices as indices2, uvs as uvs2} from "../blender/torus.js"
 
 // ******************************************************
 // **               Light configuration                **
 // ******************************************************
 
-let baseColor = vec3.fromValues(1.0, 0.1, 0.2);
-let ambientLightColor = vec3.fromValues(0.1, 0.1, 1.0);
-let numberOfPointLights = 2;
-let pointLightColors = [vec3.fromValues(1.0, 1.0, 1.0), vec3.fromValues(0.02, 0.4, 0.5)];
-let pointLightInitialPositions = [vec3.fromValues(5, 0, 2), vec3.fromValues(-5, 0, 2)];
-let pointLightPositions = [vec3.create(), vec3.create()];
+let baseColor = vec3.fromValues(0.5, 0.1, 0.2);
+let baseColor2 = vec3.fromValues(0, 1, 0);
+let ambientLightColor = vec3.fromValues(1, 0.1, 1.0);
+let numberOfPointLights = 3;
+let pointLightColors = [vec3.fromValues(1.0, 1.0, 1.0), vec3.fromValues(0, 0, 1), vec3.fromValues(1, 1, 0)];
+let pointLightInitialPositions = [vec3.fromValues(5, 0, 2), vec3.fromValues(-5, 0, 2), vec3.fromValues(0, 10, 2)];
+let pointLightPositions = [vec3.create(), vec3.create(), vec3.create()];
 
 
 // language=GLSL
@@ -28,7 +30,7 @@ let lightCalculationShader = `
     vec4 calculateLights(vec3 normal, vec3 position) {
         float ambientIntensity = 0.5;
         float diffuseIntensity = 1.0;
-        float specularIntensity = 2.0;
+        float specularIntensity = 50.0;
         float specularPower = 100.0;
         float metalness = 0.0;
 
@@ -61,14 +63,22 @@ let fragmentShader = `
     
     in vec3 vPosition;    
     in vec3 vNormal;
-    in vec4 vColor;    
+    in vec4 vColor;   
+
+    uniform float time; 
+    uniform sampler2D tex;  
+    in vec2 v_uv;
     
     out vec4 outColor;        
     
-    void main() {                      
+    void main() {
+     
+                         
         // For Phong shading (per-fragment) move color calculation from vertex to fragment shader
-        outColor = calculateLights(normalize(vNormal), vPosition);
+        outColor = calculateLights(normalize(vNormal), vPosition) * texture(tex, v_uv);
         // outColor = vColor;
+
+        
     }
 `;
 
@@ -79,6 +89,7 @@ let vertexShader = `
         
     layout(location=0) in vec4 position;
     layout(location=1) in vec4 normal;
+    layout(location=2) in vec2 uv;
     
     uniform mat4 viewProjectionMatrix;
     uniform mat4 modelMatrix;            
@@ -86,6 +97,7 @@ let vertexShader = `
     out vec3 vPosition;    
     out vec3 vNormal;
     out vec4 vColor;
+    out vec2 v_uv;
     
     void main() {
         vec4 worldPosition = modelMatrix * position;
@@ -96,7 +108,8 @@ let vertexShader = `
         // For Gouraud shading (per-vertex) move color calculation from fragment to vertex shader
         //vColor = calculateLights(normalize(vNormal), vPosition);
         
-        gl_Position = viewProjectionMatrix * worldPosition;                        
+        gl_Position = viewProjectionMatrix * worldPosition;   
+        v_uv = uv;                     
     }
 `;
 
@@ -109,20 +122,56 @@ let program = app.createProgram(vertexShader.trim(), fragmentShader.trim());
 let vertexArray = app.createVertexArray()
     .vertexAttributeBuffer(0, app.createVertexBuffer(PicoGL.FLOAT, 3, positions))
     .vertexAttributeBuffer(1, app.createVertexBuffer(PicoGL.FLOAT, 3, normals))
+    .vertexAttributeBuffer(2, app.createVertexBuffer(PicoGL.FLOAT, 2, uvs))
     .indexBuffer(app.createIndexBuffer(PicoGL.UNSIGNED_INT, 3, indices));
+
+let vertexArray2 = app.createVertexArray()
+    .vertexAttributeBuffer(0, app.createVertexBuffer(PicoGL.FLOAT, 3, positions2))
+    .vertexAttributeBuffer(1, app.createVertexBuffer(PicoGL.FLOAT, 3, normals2))
+    .vertexAttributeBuffer(2, app.createVertexBuffer(PicoGL.FLOAT, 2, uvs2))
+    .indexBuffer(app.createIndexBuffer(PicoGL.UNSIGNED_INT, 3, indices2));
 
 let projectionMatrix = mat4.create();
 let viewMatrix = mat4.create();
 let viewProjectionMatrix = mat4.create();
+let viewProjectionMatrix2 = mat4.create();
 let modelMatrix = mat4.create();
+let modelMatrix2 = mat4.create();
 
+async function loadTexture(fileName) {
+    return await createImageBitmap(await (await fetch("images/" + fileName)).blob());
+}
+
+const tex = await loadTexture("stormydays_ft.png");
 let drawCall = app.createDrawCall(program, vertexArray)
     .uniform("baseColor", baseColor)
-    .uniform("ambientLightColor", ambientLightColor);
+    .uniform("ambientLightColor", ambientLightColor)
+    .texture("tex", app.createTexture2D(tex, tex.width, tex.height, {
+        magFilter: PicoGL.LINEAR,
+        minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
+        maxAnisotropy: 10,
+        wrapS: PicoGL.MIRRORED_REPEAT,
+        wrapT: PicoGL.MIRRORED_REPEAT
+    }));
 
-let cameraPosition = vec3.fromValues(0, 0, 4);
-mat4.fromXRotation(modelMatrix, -Math.PI / 2);
+let drawCall2 = app.createDrawCall(program, vertexArray2)
+    .uniform("baseColor", baseColor2)
+    .uniform("ambientLightColor", ambientLightColor)
+    .texture("tex", app.createTexture2D(tex, tex.width, tex.height, {
+        magFilter: PicoGL.LINEAR,
+        minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
+        maxAnisotropy: 10,
+        wrapS: PicoGL.MIRRORED_REPEAT,
+        wrapT: PicoGL.MIRRORED_REPEAT
+    }));
 
+let cameraPosition = vec3.fromValues(0, 0, 30);
+mat4.fromXRotation(modelMatrix, -Math.PI / 10);
+mat4.rotateX(modelMatrix, modelMatrix, Math.PI);
+
+mat4.fromXRotation(modelMatrix2, -Math.PI / 10);
+mat4.rotateX(modelMatrix2, modelMatrix2, Math.PI);
+mat4.fromTranslation(modelMatrix2, vec3.fromValues(1, 3.5, 0));
 const positionsBuffer = new Float32Array(numberOfPointLights * 3);
 const colorsBuffer = new Float32Array(numberOfPointLights * 3);
 
@@ -130,7 +179,7 @@ function draw(timestamp) {
     const time = timestamp * 0.001;
 
     mat4.perspective(projectionMatrix, Math.PI / 4, app.width / app.height, 0.1, 100.0);
-    mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
+    mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, 1, 0), vec3.fromValues(0, 1, 0));
     mat4.multiply(viewProjectionMatrix, projectionMatrix, viewMatrix);
 
     drawCall.uniform("viewProjectionMatrix", viewProjectionMatrix);
@@ -145,9 +194,18 @@ function draw(timestamp) {
 
     drawCall.uniform("lightPositions[0]", positionsBuffer);
     drawCall.uniform("lightColors[0]", colorsBuffer);
-
     app.clear();
     drawCall.draw();
+
+    mat4.perspective(projectionMatrix, Math.PI / 4, app.width / app.height, 0.1, 100.0);
+    mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, 1, 0), vec3.fromValues(0, 1, 0));
+    mat4.multiply(viewProjectionMatrix2, projectionMatrix, viewMatrix);
+
+    drawCall2.uniform("viewProjectionMatrix", viewProjectionMatrix2);
+    drawCall2.uniform("modelMatrix", modelMatrix2);
+    drawCall2.uniform("cameraPosition", cameraPosition);
+
+    drawCall2.draw();
 
     requestAnimationFrame(draw);
 }
