@@ -3,18 +3,21 @@
 import PicoGL from "../node_modules/picogl/build/module/picogl.js";
 import {mat4, vec3, mat3, vec4, vec2} from "../node_modules/gl-matrix/esm/index.js";
 
-import {positions, normals, indices} from "../blender/cube.js"
+import {positions, normals, indices} from "../blender/smiley.js"
 import {positions as planePositions, uvs as planeUvs, indices as planeIndices} from "../blender/plane.js"
 
 // language=GLSL
 let fragmentShader = `
     #version 300 es
     precision highp float;
-    
-    uniform samplerCube cubemap;    
+
+    uniform float time;
+    uniform samplerCube cubemap;
+    uniform sampler2D tex;    
         
     in vec3 vNormal;
     in vec3 viewDir;
+    in vec2 v_uv;
     
     out vec4 outColor;
     
@@ -22,9 +25,14 @@ let fragmentShader = `
     {        
         vec3 reflectedDir = reflect(viewDir, normalize(vNormal));
         outColor = texture(cubemap, reflectedDir);
+        vec4 cubemapColor = texture(cubemap, reflectedDir);
+        vec4 textureColor = texture(tex, v_uv); // Sample texture
+        outColor = cubemapColor * textureColor; // Combine cubemap and texture colors
         
         // Try using a higher mipmap LOD to get a rough material effect without any performance impact
         // outColor = textureLod(cubemap, reflectedDir, 7.0);
+        
+       
     }
 `;
 
@@ -41,14 +49,14 @@ let vertexShader = `
     layout(location=1) in vec3 normal;
     layout(location=2) in vec2 uv;
         
-    out vec2 vUv;
+    out vec2 v_uv;
     out vec3 vNormal;
     out vec3 viewDir;
     
     void main()
     {
         gl_Position = modelViewProjectionMatrix * position;           
-        vUv = uv;
+        v_uv = uv;
         viewDir = (modelMatrix * position).xyz - cameraPosition;                
         vNormal = normalMatrix * normal;
     }
@@ -72,7 +80,7 @@ let mirrorFragmentShader = `
         vec2 screenPos = gl_FragCoord.xy / screenSize;
         
         // 0.03 is a mirror distortion factor, try making a larger distortion         
-        screenPos.x += (texture(distortionMap, vUv).r - 0.5) * 0.03;
+        screenPos.x += (texture(distortionMap, vUv).r - 0.5) * 0.3;
         outColor = texture(reflectionTex, screenPos);
     }
 `;
@@ -151,7 +159,7 @@ let mirrorArray = app.createVertexArray()
     .indexBuffer(planeIndicesBuffer);
 
 // Change the reflection texture resolution to checkout the difference
-let reflectionResolutionFactor = 0.2;
+let reflectionResolutionFactor = 1;
 let reflectionColorTarget = app.createTexture2D(app.width * reflectionResolutionFactor, app.height * reflectionResolutionFactor, {magFilter: PicoGL.LINEAR});
 let reflectionDepthTarget = app.createTexture2D(app.width * reflectionResolutionFactor, app.height * reflectionResolutionFactor, {internalFormat: PicoGL.DEPTH_COMPONENT16});
 let reflectionBuffer = app.createFramebuffer().colorTarget(0, reflectionColorTarget).depthTarget(reflectionDepthTarget);
@@ -168,6 +176,7 @@ let mirrorModelMatrix = mat4.create();
 let mirrorModelViewProjectionMatrix = mat4.create();
 let skyboxViewProjectionInverse = mat4.create();
 let cameraPosition = vec3.create();
+
 
 function calculateSurfaceReflectionMatrix(reflectionMat, mirrorModelMatrix, surfaceNormal) {
     let normal = vec3.transformMat3(vec3.create(), surfaceNormal, mat3.normalFromMat4(mat3.create(), mirrorModelMatrix));
@@ -202,6 +211,7 @@ async function loadTexture(fileName) {
     return await createImageBitmap(await (await fetch("images/" + fileName)).blob());
 }
 
+
 const cubemap = app.createCubemap({
     negX: await loadTexture("stormydays_bk.png"),
     posX: await loadTexture("stormydays_ft.png"),
@@ -211,15 +221,26 @@ const cubemap = app.createCubemap({
     posZ: await loadTexture("stormydays_rt.png")
 });
 
+
+const tex = await loadTexture("rain.jpg");
 let drawCall = app.createDrawCall(program, vertexArray)
-    .texture("cubemap", cubemap);
+    .texture("cubemap", cubemap)
+
+    .texture("tex", app.createTexture2D(tex, tex.width, tex.height, {
+        magFilter: PicoGL.LINEAR,
+        minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
+        maxAnisotropy: 10,
+        wrapS: PicoGL.MIRRORED_REPEAT,
+        wrapT: PicoGL.MIRRORED_REPEAT
+    }));
+
 
 let skyboxDrawCall = app.createDrawCall(skyboxProgram, skyboxArray)
     .texture("cubemap", cubemap);
 
 let mirrorDrawCall = app.createDrawCall(mirrorProgram, mirrorArray)
     .texture("reflectionTex", reflectionColorTarget)
-    .texture("distortionMap", app.createTexture2D(await loadTexture("noise.png")));
+    .texture("distortionMap", app.createTexture2D(await loadTexture("bump.png")));
 
 function renderReflectionTexture()
 {
@@ -238,6 +259,8 @@ function renderReflectionTexture()
 }
 
 function drawObjects(cameraPosition, viewMatrix) {
+    const scaleFactor = 0.5;
+    mat4.scale(modelMatrix, modelMatrix, [scaleFactor, scaleFactor, scaleFactor]);
     mat4.multiply(viewProjMatrix, projMatrix, viewMatrix);
 
     mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
@@ -259,15 +282,17 @@ function drawObjects(cameraPosition, viewMatrix) {
     drawCall.uniform("modelViewProjectionMatrix", modelViewProjectionMatrix);
     drawCall.uniform("cameraPosition", cameraPosition);
     drawCall.uniform("modelMatrix", modelMatrix);
-    drawCall.uniform("normalMatrix", mat3.normalFromMat4(mat3.create(), modelMatrix));
+    drawCall.uniform("normalMatrix", mat3.normalFromMat4(mat3.create(), modelMatrix)); // reflects the skybox
     drawCall.draw();
 }
 
-function drawMirror() {
-    mat4.multiply(mirrorModelViewProjectionMatrix, viewProjMatrix, mirrorModelMatrix);
-    mirrorDrawCall.uniform("modelViewProjectionMatrix", mirrorModelViewProjectionMatrix);
-    mirrorDrawCall.uniform("screenSize", vec2.fromValues(app.width, app.height))
-    mirrorDrawCall.draw();
+function drawMirror() { // cubemap and planar reflections
+    const scaleFactor = 2;
+    mat4.scale(mirrorModelMatrix, mirrorModelMatrix, [scaleFactor, scaleFactor, scaleFactor]); //scale of the plane
+    mat4.multiply(mirrorModelViewProjectionMatrix, viewProjMatrix, mirrorModelMatrix); 
+    mirrorDrawCall.uniform("modelViewProjectionMatrix", mirrorModelViewProjectionMatrix); 
+    mirrorDrawCall.uniform("screenSize", vec2.fromValues(app.width, app.height)) // reflection on the plane
+    mirrorDrawCall.draw(); // makes the plane appear 
 }
 
 function draw(timems) {
@@ -287,9 +312,8 @@ function draw(timems) {
     mat4.translate(mirrorModelMatrix, mirrorModelMatrix, vec3.fromValues(0, -1, 0));
 
     renderReflectionTexture();
-    drawObjects(cameraPosition, viewMatrix);
-    drawMirror();
-
+    drawObjects(cameraPosition, viewMatrix, time);
+    drawMirror();    
     requestAnimationFrame(draw);
 }
 
