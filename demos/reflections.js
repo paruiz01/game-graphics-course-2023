@@ -3,7 +3,11 @@
 import PicoGL from "../node_modules/picogl/build/module/picogl.js";
 import {mat4, vec3, mat3, vec4, vec2} from "../node_modules/gl-matrix/esm/index.js";
 
+<<<<<<< Updated upstream
 import {positions, normals, indices} from "../blender/cube.js"
+=======
+import {positions, normals, indices, uvs} from "../blender/stickman2.js"
+>>>>>>> Stashed changes
 import {positions as planePositions, uvs as planeUvs, indices as planeIndices} from "../blender/plane.js"
 
 // language=GLSL
@@ -135,6 +139,7 @@ let mirrorProgram = app.createProgram(mirrorVertexShader, mirrorFragmentShader);
 let vertexArray = app.createVertexArray()
     .vertexAttributeBuffer(0, app.createVertexBuffer(PicoGL.FLOAT, 3, positions))
     .vertexAttributeBuffer(1, app.createVertexBuffer(PicoGL.FLOAT, 3, normals))
+    .vertexAttributeBuffer(2, app.createVertexBuffer(PicoGL.FLOAT, 2, uvs))
     .indexBuffer(app.createIndexBuffer(PicoGL.UNSIGNED_INT, 3, indices));
 
 const planePositionsBuffer = app.createVertexBuffer(PicoGL.FLOAT, 3, planePositions);
@@ -203,12 +208,12 @@ async function loadTexture(fileName) {
 }
 
 const cubemap = app.createCubemap({
-    negX: await loadTexture("stormydays_bk.png"),
-    posX: await loadTexture("stormydays_ft.png"),
-    negY: await loadTexture("stormydays_dn.png"),
-    posY: await loadTexture("stormydays_up.png"),
-    negZ: await loadTexture("stormydays_lf.png"),
-    posZ: await loadTexture("stormydays_rt.png")
+    negX: await loadTexture("negx.jpg"),
+    posX: await loadTexture("posx.jpg"),
+    negY: await loadTexture("negy.jpg"),
+    posY: await loadTexture("posy.jpg"),
+    negZ: await loadTexture("negz.jpg"),
+    posZ: await loadTexture("posz.jpg")
 });
 
 let drawCall = app.createDrawCall(program, vertexArray)
