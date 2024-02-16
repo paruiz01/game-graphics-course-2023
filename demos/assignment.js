@@ -299,6 +299,12 @@ const cubemap = app.createCubemap({
 
 const tex = await loadTexture("rain.jpg");
 let drawCall = app.createDrawCall(program, vertexArray)
+
+    .uniform("modelMatrix", modelMatrix)
+    .uniform("modelViewProjectionMatrix", modelViewProjectionMatrix)
+    .uniform("cameraPosition", cameraPosition)
+    .uniform("lightPosition", lightPosition)
+    .uniform("lightModelViewProjectionMatrix", lightModelViewProjectionMatrix)
     .texture("cubemap", cubemap)
 
     .texture("tex", app.createTexture2D(tex, tex.width, tex.height, {
@@ -306,13 +312,8 @@ let drawCall = app.createDrawCall(program, vertexArray)
         minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
         maxAnisotropy: 10
 
-    .uniform("modelMatrix", modelMatrix)
-    .uniform("modelViewProjectionMatrix", modelViewProjectionMatrix)
-    .uniform("cameraPosition", cameraPosition)
-    .uniform("lightPosition", lightPosition)
-    .uniform("lightModelViewProjectionMatrix", lightModelViewProjectionMatrix)
-    .texture("shadowMap", shadowDepthTarget)
-    }));
+    }))
+    .texture("shadowMap", shadowDepthTarget);
 
 let shadowDrawCall = app.createDrawCall(shadowProgram, vertexArray)
     .uniform("lightModelViewProjectionMatrix", lightModelViewProjectionMatrix);
@@ -326,7 +327,7 @@ function renderShadowMap() {
     mat4.perspective(projMatrix, Math.PI * 0.1, shadowDepthTarget.width / shadowDepthTarget.height, 0.1, 100.0);
     mat4.multiply(lightViewProjMatrix, projMatrix, lightViewMatrix);
 
-    drawObjects(shadowDrawCall);
+    drawObjects(cameraPosition, viewMatrix, shadowDrawCall, 0);
 
     app.gl.cullFace(app.gl.BACK);
     app.defaultDrawFramebuffer();
@@ -351,7 +352,7 @@ function renderReflectionTexture()
     let reflectionMatrix = calculateSurfaceReflectionMatrix(mat4.create(), mirrorModelMatrix, vec3.fromValues(0, 1, 0));
     let reflectionViewMatrix = mat4.mul(mat4.create(), viewMatrix, reflectionMatrix);
     let reflectionCameraPosition = vec3.transformMat4(vec3.create(), cameraPosition, reflectionMatrix);
-    drawObjects(reflectionCameraPosition, reflectionViewMatrix);
+    drawObjects(reflectionCameraPosition, reflectionViewMatrix, drawCall, 0);
 
     app.gl.cullFace(app.gl.BACK);
     app.defaultDrawFramebuffer();
@@ -414,8 +415,8 @@ function drawObjects(cameraPosition, viewMatrix, dc, time) {
 function drawMirror() { // cubemap and planar reflections
     const scaleFactor = 2;
     mat4.scale(mirrorModelMatrix, mirrorModelMatrix, [scaleFactor, scaleFactor, scaleFactor]); //scale of the plane
-    mat4.multiply(mirrorModelViewProjectionMatrix, viewProjMatrix, mirrorModelMatrix); 
-    mirrorDrawCall.uniform("modelViewProjectionMatrix", mirrorModelViewProjectionMatrix); 
+    mat4.multiply(modelViewProjectionMatrix, viewProjMatrix, mirrorModelMatrix); 
+    mirrorDrawCall.uniform("modelViewProjectionMatrix", modelViewProjectionMatrix); 
     mirrorDrawCall.uniform("screenSize", vec2.fromValues(app.width, app.height)) // reflection on the plane
     mirrorDrawCall.draw(); // makes the plane appear 
 }
@@ -437,10 +438,10 @@ function draw(timems) {
     mat4.translate(mirrorModelMatrix, mirrorModelMatrix, vec3.fromValues(0, -1, 0));
 
     renderReflectionTexture();
-    drawObjects(cameraPosition, viewMatrix, time);
+    renderShadowMap();
+    drawObjects(cameraPosition, viewMatrix, drawCall, time);
     drawMirror();    
     requestAnimationFrame(draw);
-    renderShadowMap();
 }
 
 requestAnimationFrame(draw);
