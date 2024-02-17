@@ -1,9 +1,8 @@
-// This demo demonstrates simple cubemap reflections and more complex planar reflections
 
 import PicoGL from "../node_modules/picogl/build/module/picogl.js";
 import {mat4, vec3, mat3, vec4, vec2, quat} from "../node_modules/gl-matrix/esm/index.js";
 
-import {positions, normals, indices, uvs} from "../blender/stickman2.js"
+import {positions, normals, indices, uvs} from "../blender/cube.js"
 import {positions as planePositions, uvs as planeUvs, indices as planeIndices} from "../blender/plane.js"
 
 // language=GLSL
@@ -49,7 +48,6 @@ let fragmentShader = `
         
         // Reflections
         vec3 reflectedDir = reflect(viewDir, normalize(vNormal));
-        outColor = texture(cubemap, reflectedDir);
         vec4 cubemapColor = texture(cubemap, reflectedDir);
         vec4 textureColor = texture(tex, v_uv); // Sample texture
         outColor = cubemapColor * textureColor; // Combine cubemap and texture colors
@@ -103,7 +101,7 @@ let mirrorFragmentShader = `
     uniform sampler2D distortionMap;
     uniform vec2 screenSize;
     
-    in vec2 vUv;        
+    in vec2 v_uv;        
         
     out vec4 outColor;
     
@@ -112,7 +110,7 @@ let mirrorFragmentShader = `
         vec2 screenPos = gl_FragCoord.xy / screenSize;
         
         // 0.03 is a mirror distortion factor, try making a larger distortion         
-        screenPos.x += (texture(distortionMap, vUv).r - 0.5) * 0.3;
+        screenPos.x += (texture(distortionMap, v_uv).r - 0.5) * 0.3;
         outColor = texture(reflectionTex, screenPos);
     }
 `;
@@ -126,11 +124,11 @@ let mirrorVertexShader = `
     layout(location=0) in vec4 position;   
     layout(location=1) in vec2 uv;
     
-    out vec2 vUv;
+    out vec2 v_uv;
         
     void main()
     {
-        vUv = uv;
+        v_uv = uv;
         vec4 pos = position;
         pos.xz *= 2.0;
         gl_Position = modelViewProjectionMatrix * pos;
@@ -306,14 +304,14 @@ let drawCall = app.createDrawCall(program, vertexArray)
     .uniform("lightPosition", lightPosition)
     .uniform("lightModelViewProjectionMatrix", lightModelViewProjectionMatrix)
     .texture("cubemap", cubemap)
+    .texture("shadowMap", shadowDepthTarget)
 
     .texture("tex", app.createTexture2D(tex, tex.width, tex.height, {
         magFilter: PicoGL.LINEAR,
         minFilter: PicoGL.LINEAR_MIPMAP_LINEAR,
         maxAnisotropy: 10
 
-    }))
-    .texture("shadowMap", shadowDepthTarget);
+    }));
 
 let shadowDrawCall = app.createDrawCall(shadowProgram, vertexArray)
     .uniform("lightModelViewProjectionMatrix", lightModelViewProjectionMatrix);
@@ -324,7 +322,7 @@ function renderShadowMap() {
     app.gl.cullFace(app.gl.FRONT);
 
     // Projection and view matrices are changed to render objects from the point view of light source
-    mat4.perspective(projMatrix, Math.PI * 0.1, shadowDepthTarget.width / shadowDepthTarget.height, 0.1, 100.0);
+    mat4.perspective(projMatrix, Math.PI * 0.5, shadowDepthTarget.width / shadowDepthTarget.height, 0.1, 100.0);
     mat4.multiply(lightViewProjMatrix, projMatrix, lightViewMatrix);
 
     drawObjects(cameraPosition, viewMatrix, shadowDrawCall, 0);
@@ -359,7 +357,7 @@ function renderReflectionTexture()
     app.defaultViewport();
 }
 
-function drawObjects(cameraPosition, viewMatrix, dc, time) {
+function drawObjects(cameraPosition, viewMatrix, drawCall) {
     const scaleFactor = 0.5;
     mat4.scale(modelMatrix, modelMatrix, [scaleFactor, scaleFactor, scaleFactor]);
     mat4.multiply(viewProjMatrix, projMatrix, viewMatrix);
@@ -374,21 +372,13 @@ function drawObjects(cameraPosition, viewMatrix, dc, time) {
 
     app.clear();
 
-    // Middle object
-    quat.fromEuler(rotation, time * 48.24, time * 56.97, 0);
-    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(0, 0, 0), [0.8, 0.8, 0.8]);
-    mat4.multiply(modelViewProjectionMatrix, viewProjMatrix, modelMatrix);
-    mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
-
-    dc.draw();
-
     // Large object
     quat.fromEuler(rotation, time * 12, time * 14, 0);
     mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(-2.4, -2.4, -1.2), [2, 2, 2]);
     mat4.multiply(modelViewProjectionMatrix, viewProjMatrix, modelMatrix);
-    mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
+    mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix)
 
-    dc.draw();
+    drawCall.draw();
 
     // Small object
     quat.fromEuler(rotation, time * 15, time * 17, 0);
@@ -396,7 +386,7 @@ function drawObjects(cameraPosition, viewMatrix, dc, time) {
     mat4.multiply(modelViewProjectionMatrix, viewProjMatrix, modelMatrix);
     mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
 
-    dc.draw();
+    drawCall.draw();
 
     app.disable(PicoGL.DEPTH_TEST);
     app.disable(PicoGL.CULL_FACE);
@@ -413,7 +403,7 @@ function drawObjects(cameraPosition, viewMatrix, dc, time) {
 }
 
 function drawMirror() { // cubemap and planar reflections
-    const scaleFactor = 2;
+    const scaleFactor = 1;
     mat4.scale(mirrorModelMatrix, mirrorModelMatrix, [scaleFactor, scaleFactor, scaleFactor]); //scale of the plane
     mat4.multiply(modelViewProjectionMatrix, viewProjMatrix, mirrorModelMatrix); 
     mirrorDrawCall.uniform("modelViewProjectionMatrix", modelViewProjectionMatrix); 
@@ -423,10 +413,14 @@ function drawMirror() { // cubemap and planar reflections
 
 function draw(timems) {
     time = timems * 0.001;
-
+    
+    vec3.set(cameraPosition, 0, 5, 8);
     mat4.perspective(projMatrix, Math.PI / 2.5, app.width / app.height, 0.1, 100.0);
-    vec3.rotateY(cameraPosition, vec3.fromValues(0, 1, 3.4), vec3.fromValues(0, 0, 0), time * 0.05);
-    mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, -0.5, 0), vec3.fromValues(0, 1, 0));
+    //vec3.rotateY(cameraPosition, vec3.fromValues(0, 1, 3.4), vec3.fromValues(0, 0, 0), time * 0.05);
+    mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, 0.5, 0), vec3.fromValues(0, 1, 0));
+    mat4.mul(viewProjMatrix, projMatrix, viewMatrix);
+    vec3.set(lightPosition, 5, 5, 2.5);
+    mat4.lookAt(lightViewMatrix, lightPosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
 
     mat4.fromXRotation(rotateXMatrix, time * 0.1136 - Math.PI / 2);
     mat4.fromZRotation(rotateYMatrix, time * 0.2235);
