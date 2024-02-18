@@ -440,7 +440,7 @@ function drawObjects(cameraPosition, viewMatrix, dc) {
 
     //// Large object
     quat.fromEuler(rotation, time * 12, time * 14, 0);
-    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(-9.4, -4.4, 5.2), [2, 2, 2]);
+    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(-20.4, -4.4, 9.2), [2, 2, 2]);
     mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
     mat4.multiply(modelViewProjectionMatrix, viewProjectionMatrix, modelMatrix);
     mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
@@ -448,7 +448,7 @@ function drawObjects(cameraPosition, viewMatrix, dc) {
 
     //// Small object
     quat.fromEuler(rotation, time * 15, time * 17, 0);
-    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(0.9, 0.9, 0.6), [1, 1, 1]);
+    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(3.9, -7.9, -7.6), [1, 1, 1]);
     mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
     mat4.multiply(modelViewProjectionMatrix, viewProjectionMatrix, modelMatrix);
     mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
@@ -468,7 +468,7 @@ function draw(timems) {
     drawCall.uniform("lightColors[0]", colorsBuffer);
 
     mat4.perspective(projectionMatrix, Math.PI / 4, app.width / app.height, 0.1, 100.0);
-    let cameraPosition = vec3.rotateY(vec3.create(), vec3.fromValues(0, 10.5, 50), vec3.fromValues(0, 0, 0), time * 0.05);
+    let cameraPosition = vec3.rotateY(vec3.create(), vec3.fromValues(50, 10.5, 40), vec3.fromValues(0, 0, 0), time * 0.05);
     mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, 0.2, 0), vec3.fromValues(0, 10, 0));
 
     mat4.fromXRotation(rotateXMatrix, 0.3);
