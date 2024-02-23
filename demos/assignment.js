@@ -1,17 +1,17 @@
 import PicoGL from "../node_modules/picogl/build/module/picogl.js";
 import {mat4, vec3, mat3, vec4, vec2, quat} from "../node_modules/gl-matrix/esm/index.js";
 
-import {positions, normals, indices, uvs} from "../blender/stickman2.js"
+import {positions, normals, indices, uvs} from "../blender/smiley.js"
 import {positions as planePositions, uvs as planeUvs, indices as planeIndices} from "../blender/plane.js"
 
 // ******************************************************
 // **               Light configuration                **
 // ******************************************************
 
-let baseColor = vec3.fromValues(1.0, 0.1, 0.2);
-let ambientLightColor = vec3.fromValues(0.1, 0.1, 1.0);
+let baseColor = vec3.fromValues(0, 1.0, 0);
+let ambientLightColor = vec3.fromValues(0, 0, 1.0);
 let numberOfPointLights = 2;
-let pointLightColors = [vec3.fromValues(1.0, 1.0, 1.0), vec3.fromValues(0.02, 0.4, 0.5)];
+let pointLightColors = [vec3.fromValues(0, 1.0, 0), vec3.fromValues(0.02, 0.4, 0.5)];
 let pointLightInitialPositions = [vec3.fromValues(5, 0, 2), vec3.fromValues(-5, 0, 2)];
 let pointLightPositions = [vec3.create(), vec3.create()];
 
@@ -27,9 +27,9 @@ let lightCalculationShader = `
     
     // This function calculates light reflection using Phong reflection model (ambient + diffuse + specular)
     vec4 calculateLights(vec3 normal, vec3 position) {
-        float ambientIntensity = 0.5;
+        float ambientIntensity = 1.5;
         float diffuseIntensity = 1.0;
-        float specularIntensity = 2.0;
+        float specularIntensity = 1.0;
         float specularPower = 100.0;
         float metalness = 0.0;
 
@@ -118,19 +118,6 @@ let vertexShader = `
     
     
     void main() {
-        /*
-        vec4 worldPosition = modelMatrix * position;
-        vModelPosition = vec3(position);
-        vPosition = worldPosition.xyz;        
-        vNormal = (modelMatrix * normal).xyz;
-        
-        // For Gouraud shading (per-vertex) move color calculation from fragment to vertex shader
-        //vColor = calculateLights(normalize(vNormal), vPosition);
-        
-        vPositionFromLight = lightModelViewProjectionMatrix * position;
-        gl_Position = viewProjectionMatrix * worldPosition;
-        v_uv = uv;    
-        */
         v_uv = uv; 
 
         gl_Position = modelViewProjectionMatrix * position;
@@ -236,7 +223,85 @@ let shadowVertexShader = `
     }
 `;
 
-let bgColor = vec4.fromValues(1.0, 0.2, 0.3, 1.0);
+// language=GLSL
+let postFragmentShader = `
+    #version 300 es
+    precision mediump float;
+    
+    uniform sampler2D tex;
+    uniform sampler2D depthTex;
+    uniform float time;
+    uniform sampler2D noiseTex;
+    
+    in vec2 screenPosition;
+    
+    out vec4 outColor;
+    
+    vec4 depthOfField(vec4 col, float depth, vec2 uv) {
+        vec4 blur = vec4(0.0);
+        float n = 0.0;
+        for (float u = -1.0; u <= 1.0; u += 0.4)    
+            for (float v = -1.0; v <= 1.0; v += 0.4) {
+                float factor = abs(depth - 0.995) * 350.0;
+                blur += texture(tex, uv + vec2(u, v) * factor * 0.02);
+                n += 1.0;
+            }                
+        return blur / n;
+    }
+    
+    vec4 ambientOcclusion(vec4 col, float depth, vec2 uv) {
+        if (depth == 1.0) return col;
+        for (float u = -2.0; u <= 2.0; u += 0.4)    
+            for (float v = -2.0; v <= 2.0; v += 0.4) {                
+                float d = texture(depthTex, uv + vec2(u, v) * 0.01).r;
+                if (d != 1.0) {
+                    float diff = abs(depth - d);
+                    col *= 1.0 - diff * 30.0;
+                }
+            }
+        return col;        
+    }   
+    
+    float random(vec2 seed) {
+        return texture(noiseTex, seed * 5.0 + sin(time * 543.12) * 54.12).r - 0.5;
+    }
+    
+    void main() {
+        vec4 col = texture(tex, screenPosition);
+        float depth = texture(depthTex, screenPosition).r;
+        
+        // Chromatic aberration 
+        // vec2 caOffset = vec2(0.01, 0.0);
+        // col.r = texture(tex, screenPosition - caOffset).r;
+        // col.b = texture(tex, screenPosition + caOffset).b;
+        
+        // Depth of field
+        col = depthOfField(col, depth, screenPosition);               
+        
+        // Invert
+        col.rgb = 1.0 - col.rgb;
+        
+        // Fog
+        //col.rgb = col.rgb + vec3((depth - 0.992) * 200.0);         
+                        
+        outColor = col;
+    }
+`;
+
+// language=GLSL
+let postVertexShader = `
+    #version 300 es
+    
+    layout(location=0) in vec4 position;
+    out vec2 screenPosition;
+    
+    void main() {
+        screenPosition = position.xz + 1.0 * 0.5;
+        gl_Position = vec4(position.xzy, 0.5);
+    }
+`;
+
+let bgColor = vec4.fromValues(1, 1, 1, 1.0);
 
 app.enable(PicoGL.DEPTH_TEST)
    .enable(PicoGL.CULL_FACE)
@@ -244,6 +309,7 @@ app.enable(PicoGL.DEPTH_TEST)
    
 
 let program = app.createProgram(vertexShader, fragmentShader);
+let postProgram = app.createProgram(postVertexShader.trim(), postFragmentShader.trim());
 let skyboxProgram = app.createProgram(skyboxVertexShader, skyboxFragmentShader);
 let mirrorProgram = app.createProgram(mirrorVertexShader, mirrorFragmentShader);
 let shadowProgram = app.createProgram(shadowVertexShader, shadowFragmentShader);
@@ -253,6 +319,14 @@ let vertexArray = app.createVertexArray()
     .vertexAttributeBuffer(1, app.createVertexBuffer(PicoGL.FLOAT, 3, normals))
     .vertexAttributeBuffer(2, app.createVertexBuffer(PicoGL.FLOAT, 2, uvs))
     .indexBuffer(app.createIndexBuffer(PicoGL.UNSIGNED_INT, 3, indices));
+
+let postArray = app.createVertexArray()
+    .vertexAttributeBuffer(0, app.createVertexBuffer(PicoGL.FLOAT, 3, planePositions))
+    .indexBuffer(app.createIndexBuffer(PicoGL.UNSIGNED_INT, 3, planeIndices));
+
+let colorTarget = app.createTexture2D(app.width, app.height, {magFilter: PicoGL.LINEAR, wrapS: PicoGL.CLAMP_TO_EDGE, wrapR: PicoGL.CLAMP_TO_EDGE});
+let depthTarget = app.createTexture2D(app.width, app.height, {internalFormat: PicoGL.DEPTH_COMPONENT32F, type: PicoGL.FLOAT});
+let buffer = app.createFramebuffer().colorTarget(0, colorTarget).depthTarget(depthTarget);
 
 // Change the shadow texture resolution to checkout the difference
 let shadowDepthTarget = app.createTexture2D(512, 512, {
@@ -279,7 +353,7 @@ let mirrorArray = app.createVertexArray()
     .indexBuffer(planeIndicesBuffer);
 
 // Change the reflection texture resolution to checkout the difference
-let reflectionResolutionFactor = 1.0;
+let reflectionResolutionFactor = 1;
 let reflectionColorTarget = app.createTexture2D(app.width * reflectionResolutionFactor, app.height * reflectionResolutionFactor, {magFilter: PicoGL.LINEAR});
 let reflectionDepthTarget = app.createTexture2D(app.width * reflectionResolutionFactor, app.height * reflectionResolutionFactor, {internalFormat: PicoGL.DEPTH_COMPONENT16});
 let reflectionBuffer = app.createFramebuffer().colorTarget(0, reflectionColorTarget).depthTarget(reflectionDepthTarget);
@@ -372,14 +446,21 @@ let drawCall = app.createDrawCall(program, vertexArray)
         wrapT: PicoGL.REPEAT
     }));
 
+
+
 let shadowDrawCall = app.createDrawCall(shadowProgram, vertexArray)
     .uniform("lightModelViewProjectionMatrix", lightModelViewProjectionMatrix);
+
+let postDrawCall = app.createDrawCall(postProgram, postArray)
+    .texture("tex", colorTarget)
+    .texture("depthTex", depthTarget)
+    .texture("noiseTex", app.createTexture2D(await loadTexture("noise.png")));
 
 const positionsBuffer = new Float32Array(numberOfPointLights * 3);
 const colorsBuffer = new Float32Array(numberOfPointLights * 3);
 
 function drawMirror() {
-    const scaleFactor = 40;
+    const scaleFactor = 10;
     mat4.scale(mirrorModelMatrix, mirrorModelMatrix, [scaleFactor, scaleFactor, scaleFactor]);
     mat4.multiply(mirrorModelViewProjectionMatrix, viewProjectionMatrix, mirrorModelMatrix);
     mirrorDrawCall.uniform("modelViewProjectionMatrix", mirrorModelViewProjectionMatrix);
@@ -409,7 +490,7 @@ function renderShadowMap() {
     app.gl.cullFace(app.gl.FRONT);
 
     // Projection and view matrices are changed to render objects from the point view of light source
-    mat4.perspective(projectionMatrix, Math.PI * 0.1, shadowDepthTarget.width / shadowDepthTarget.height, 0.1, 100.0);
+    mat4.perspective(projectionMatrix, Math.PI * 0.2, shadowDepthTarget.width / shadowDepthTarget.height, 0.1, 100.0);
     mat4.multiply(lightViewProjMatrix, projectionMatrix, lightViewMatrix);
 
     drawObjects(cameraPosition, lightViewProjMatrix, shadowDrawCall);
@@ -420,10 +501,14 @@ function renderShadowMap() {
 }
 
 function drawObjects(cameraPosition, viewMatrix, dc) {
+    mat4.multiply(viewProjectionMatrix, projectionMatrix, viewMatrix);
+
+    mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
+    mat4.multiply(modelViewProjectionMatrix, viewProjectionMatrix, modelMatrix);
+
     let skyboxViewProjectionMatrix = mat4.create();
     mat4.mul(skyboxViewProjectionMatrix, projectionMatrix, viewMatrix);
     mat4.invert(skyboxViewProjectionInverse, skyboxViewProjectionMatrix);
-
     app.clear();
 
     app.disable(PicoGL.DEPTH_TEST);
@@ -440,7 +525,7 @@ function drawObjects(cameraPosition, viewMatrix, dc) {
 
     //// Large object
     quat.fromEuler(rotation, time * 12, time * 14, 0);
-    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(-20.4, -4.4, 9.2), [2, 2, 2]);
+    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(-2.4, -2.4, -1.2), [1, 1, 1]);
     mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
     mat4.multiply(modelViewProjectionMatrix, viewProjectionMatrix, modelMatrix);
     mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
@@ -448,7 +533,7 @@ function drawObjects(cameraPosition, viewMatrix, dc) {
 
     //// Small object
     quat.fromEuler(rotation, time * 15, time * 17, 0);
-    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(3.9, -7.9, -7.6), [1, 1, 1]);
+    mat4.fromRotationTranslationScale(modelMatrix, rotation, vec3.fromValues(2.9, 2.9, 2.6), [0.22, 0.22, 0.22]);
     mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
     mat4.multiply(modelViewProjectionMatrix, viewProjectionMatrix, modelMatrix);
     mat4.multiply(lightModelViewProjectionMatrix, lightViewProjMatrix, modelMatrix);
@@ -456,38 +541,47 @@ function drawObjects(cameraPosition, viewMatrix, dc) {
 }
 
 function draw(timems) {
+    
     time = timems * 0.001;
 
     for (let i = 0; i < numberOfPointLights; i++) {
-        vec3.rotateZ(pointLightPositions[i], pointLightInitialPositions[i], vec3.fromValues(0, 0, 0), time);
-        positionsBuffer.set(pointLightPositions[i], i * 3);
-        colorsBuffer.set(pointLightColors[i], i * 3);
+       vec3.rotateZ(pointLightPositions[i], pointLightInitialPositions[i], vec3.fromValues(0, 0, 0), time);
+       positionsBuffer.set(pointLightPositions[i], i * 3);
+       colorsBuffer.set(pointLightColors[i], i * 3);
     }
 
     drawCall.uniform("lightPositions[0]", positionsBuffer);
     drawCall.uniform("lightColors[0]", colorsBuffer);
 
-    mat4.perspective(projectionMatrix, Math.PI / 4, app.width / app.height, 0.1, 100.0);
-    let cameraPosition = vec3.rotateY(vec3.create(), vec3.fromValues(50, 10.5, 40), vec3.fromValues(0, 0, 0), time * 0.05);
+    vec3.set(cameraPosition, 45, 20, 1);
     mat4.lookAt(viewMatrix, cameraPosition, vec3.fromValues(0, 0.2, 0), vec3.fromValues(0, 10, 0));
 
-    mat4.fromXRotation(rotateXMatrix, 0.3);
+    mat4.fromXRotation(rotateXMatrix, 0);
     mat4.fromYRotation(rotateYMatrix, time * 0.2354);
     mat4.mul(mirrorModelMatrix, rotateYMatrix, rotateXMatrix);
-    mat4.translate(mirrorModelMatrix, mirrorModelMatrix, vec3.fromValues(0, -20, 0));
+    mat4.translate(mirrorModelMatrix, mirrorModelMatrix, vec3.fromValues(0, -5, 0));
 
-    vec3.set(lightPosition, 5, 5, 2.5);
+    vec3.set(lightPosition, 45, -10, 1);
     mat4.lookAt(lightViewMatrix, lightPosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
     
     mat4.multiply(viewProjectionMatrix, projectionMatrix, viewMatrix);
     renderShadowMap();
 
-    renderReflectionTexture();
+    renderReflectionTexture(time);
     
     drawObjects(cameraPosition, viewMatrix, drawCall);
 
     drawMirror();
-    
+
     requestAnimationFrame(draw);
+    
+    app.drawFramebuffer(buffer);
+    app.viewport(0, 0, colorTarget.width, colorTarget.height);
+
+    app.disable(PicoGL.DEPTH_TEST)
+    .disable(PicoGL.CULL_FACE);
+
+    postDrawCall.uniform("time", time);
+    postDrawCall.draw();
 }
 requestAnimationFrame(draw);
